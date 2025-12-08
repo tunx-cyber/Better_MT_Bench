@@ -1,0 +1,1 @@
+更好地加速mt-bench的过程。原始的代码是用transformers库，生成速度太慢了，改用了vllm，并且我发现是用deepseek V3.2和chatgpt4得到的结果是非常相似，但是api价格却少很多，因此建议使用deepseek。
