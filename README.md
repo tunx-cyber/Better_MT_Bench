@@ -3,3 +3,19 @@
 - 支持各种模型，只需要根据函数的参数要求，可以自行定义judge model。
 - 更快的生成速度。使用vllm帮助你的模型更快生成，并且支持lora参数的插入。
 - 原汁原味的MT-Bench，prompt完全根据fastcht/llm_judge进行生成。
+
+example:
+```python
+if __name__ == "__main__":
+    gen_judgement(
+        question_file="./question.jsonl",
+        answer_file="./ans_file.jsonl",
+        ref_answer_file="./ref_ans.jsonl",
+        output_file="./mt_judgement.jsonl",
+        judge_model="YOUR_MODEL",
+        api_dict={
+            "api_key":"YOUR_KEY",
+            "base_url":"YOUR_URL"
+        }
+    )
+```
