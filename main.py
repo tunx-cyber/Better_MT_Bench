@@ -115,125 +115,6 @@ def gen_mt_2(questions, answers, ref_answers=None):
     messages.append({"role": "system", "content": sys_prompt})
     messages.append({"role": "user", "content": user_prompt})
     return messages
-def chat_completion_openai(model, messages, temperature, max_tokens, api_dict={"api_key": "sk-b34ec70bb71f431ebba2b8a7ba749bc4", "base_url": "https://api.deepseek.com"}):
-    if api_dict is None:
-        client = OpenAI(
-            api_key=os.environ.get('DEEPSEEK_API_KEY'),
-            base_url="https://api.deepseek.com"
-        )
-    else:
-        client = OpenAI(
-            api_key=api_dict['api_key'],
-            base_url=api_dict['base_url']
-        )
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            seed=42
-        )
-    except OpenAIError as e:
-        print(f"OpenAI API error: {e}")
-        return -1
-    if response.choices[0].message.reasoning_content:
-        return str(response.choices[0].message.reasoning_content)+str(response.choices[0].message.content)
-    else:
-        return response.choices[0].message.content
-def get_score_from_judgment(judgment):
-    match = re.search(one_score_pattern, judgment)
-    if not match:
-        match = re.search(one_score_pattern_backup, judgment)
-
-    if match:
-        rating = ast.literal_eval(match.groups()[0])
-    else:
-        rating = -1
-    return rating
-
-def gen_judgement(question_file, answer_file, ref_answer_file, output_file=None):
-    questions = []
-    with open(question_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()  # 去除换行符和空白
-            if line:  # 跳过空行
-                questions.append(json.loads(line))
-
-    ans = []
-    with open(answer_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()  # 去除换行符和空白
-            if line:  # 跳过空行
-                ans.append(json.loads(line))
-    
-    ref_answers = []
-    with open(ref_answer_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()  # 去除换行符和空白
-            if line:  # 跳过空行
-                ref_answers.append(json.loads(line))
-    ref_answers_dict = {item['question_id']: item for item in ref_answers}
-    # print(ref_answers_dict[101]["choices"][0]['turns'][0])
-    # print(ref_answers_dict[101]["choices"][0]['turns'][1])
-    # exit()
-    mt_1 = []
-    mt_2 = []
-    for question, answer in tqdm(zip(questions, ans),total=len(questions)):
-        assert question['question_id'] == answer['question_id'], "Mismatched question and answer IDs"
-        q_1 = question['turns'][0]
-        a_1 = answer['choices'][0]['turns'][0]
-        q_2 = question['turns'][1]
-        a_2 = answer['choices'][0]['turns'][1]
-        ref_answer_item = ref_answers_dict.get(int(question['question_id']), None)
-        if ref_answer_item:
-            ref_a_1 = ref_answer_item["choices"][0]['turns'][0]
-            ref_a_2 = ref_answer_item["choices"][0]['turns'][1]
-            ref_answers_pair = [ref_a_1, ref_a_2]
-        else:
-            ref_answers_pair = None
-        mt_1_msg = gen_mt_1(q_1, a_1, ref_answer=ref_a_1 if ref_answer_item else None)
-        mt_2_msg = gen_mt_2([q_1, q_2],[a_1, a_2],ref_answers=ref_answers_pair)
-
-        mt_1_judge = chat_completion_openai("deepseek-reasoner", mt_1_msg, temperature=0, max_tokens=2048)
-        mt_2_judge = chat_completion_openai("deepseek-reasoner", mt_2_msg, temperature=0, max_tokens=2048)
-        mt_1.append(get_score_from_judgment(mt_1_judge))
-        mt_2.append(get_score_from_judgment(mt_2_judge))
-        result = {
-            "question_id": question['question_id'],
-            "mt_1_judge": mt_1_judge,
-            "mt_2_judge": mt_2_judge,
-            "mt_1_score": mt_1[-1],
-            "mt_2_score": mt_2[-1]
-        }
-        if output_file:
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
-            with open(output_file, "a") as fout:
-                fout.write(json.dumps(result) + "\n")
-
-    print("MT-1 Scores:", mt_1)
-    print("MT-2 Scores:", mt_2)
-    print("MT-1 Average Score:", sum(mt_1) / len(mt_1))
-    print("MT-2 Average Score:", sum(mt_2) / len(mt_2))
-    print("MT-Avg Score:", (sum(mt_1) + sum(mt_2)) / (len(mt_1) + len(mt_2)))
-
-
-def show_results(result_file):
-    scores = []
-    with open(result_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()  # 去除换行符和空白
-            if line:  # 跳过空行
-                scores.append(json.loads(line))
-    mt_1 = [item['mt_1_score'] for item in scores]
-    mt_2 = [item['mt_2_score'] for item in scores]
-    mt_1 = [score for score in mt_1 if score != -1]
-    mt_2 = [score for score in mt_2 if score != -1]
-    mt_1_avg = sum(mt_1) / len(mt_1)
-    mt_2_avg = sum(mt_2) / len(mt_2)
-    print("MT-1 Average Score:", mt_1_avg)
-    print("MT-2 Average Score:", mt_2_avg)
-    print("MT-Avg Score:", (mt_1_avg + mt_2_avg) / 2)
 
 def generate_answers(model_name, lora_path, question_file, output_file):
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
@@ -271,22 +152,122 @@ def generate_answers(model_name, lora_path, question_file, output_file):
         with open(output_file, "a") as fout:
             fout.write(json.dumps(result) + "\n")
 
-
-import argparse
-if __name__ == "__main__":
-    # gen_judgement("/home/tunx/MyLLM/FastChat/fastchat/llm_judge/data/mt_bench/question.jsonl",
-    #               "/home/tunx/MyLLM/ans_file.jsonl",
-    #               "/home/tunx/MyLLM/ref_ans.jsonl",
-    #               "/home/tunx/MyLLM/result.jsonl")
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default='huggyllama/llama-7b', type=str, help='Model name or path')
-    parser.add_argument('--lora_path',type=str, help='LoRA path')
-    parser.add_argument('--question_file', type=str, help='Path to question file')
-    parser.add_argument('--answer_file', type=str, help='Path to save generated answers')
-    parser.add_argument('--ref_answer_file', type=str, help='Path to reference answer file')
-    parser.add_argument('--result_file', type=str, help='Path to save judgement results')
-    args = parser.parse_args()
-    generate_answers(args.model, args.lora_path, args.question_file, args.answer_file)
-    gen_judgement(args.question_file, args.answer_file, args.ref_answer_file, args.result_file)
-
+def chat_completion_openai(model, messages, temperature, max_tokens, api_dict):
+    if api_dict is None:# default to environment variable
+        client = OpenAI(
+            api_key=os.environ.get('API_KEY'),
+            base_url=os.environ.get('BASE_URL')
+        )
+    else:
+        client = OpenAI(
+            api_key=api_dict['api_key'],
+            base_url=api_dict['base_url']
+        )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            seed=42
+        )
+    except OpenAIError as e:
+        print(f"OpenAI API error: {e}")
+        return -1
+    if hasattr(response.choices[0].message,"reasoning_content") and response.choices[0].message.reasoning_content:
+        return str(response.choices[0].message.reasoning_content)+str(response.choices[0].message.content)
+    else:
+        return response.choices[0].message.content
     
+def get_score_from_judgment(judgment):
+    match = re.search(one_score_pattern, judgment)
+    if not match:
+        match = re.search(one_score_pattern_backup, judgment)
+
+    if match:
+        rating = ast.literal_eval(match.groups()[0])
+    else:
+        rating = -1
+    return rating
+
+def gen_judgement(question_file, answer_file, ref_answer_file, output_file=None, judge_model="deepseek-reasoner", api_dict=None):
+    questions = []
+    with open(question_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()  # 去除换行符和空白
+            if line:  # 跳过空行
+                questions.append(json.loads(line))
+
+    ans = []
+    with open(answer_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()  # 去除换行符和空白
+            if line:  # 跳过空行
+                ans.append(json.loads(line))
+    
+    ref_answers = []
+    with open(ref_answer_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()  # 去除换行符和空白
+            if line:  # 跳过空行
+                ref_answers.append(json.loads(line))
+    ref_answers_dict = {item['question_id']: item for item in ref_answers}
+
+    mt_1 = []
+    mt_2 = []
+    for question, answer in tqdm(zip(questions, ans),total=len(questions)):
+        assert question['question_id'] == answer['question_id'], "Mismatched question and answer IDs"
+        q_1 = question['turns'][0]
+        a_1 = answer['choices'][0]['turns'][0]
+        q_2 = question['turns'][1]
+        a_2 = answer['choices'][0]['turns'][1]
+        ref_answer_item = ref_answers_dict.get(int(question['question_id']), None)
+        if ref_answer_item:
+            ref_a_1 = ref_answer_item["choices"][0]['turns'][0]
+            ref_a_2 = ref_answer_item["choices"][0]['turns'][1]
+            ref_answers_pair = [ref_a_1, ref_a_2]
+        else:
+            ref_answers_pair = None
+        mt_1_msg = gen_mt_1(q_1, a_1, ref_answer=ref_a_1 if ref_answer_item else None)
+        mt_2_msg = gen_mt_2([q_1, q_2],[a_1, a_2],ref_answers=ref_answers_pair)
+
+        mt_1_judge = chat_completion_openai(judge_model, mt_1_msg, temperature=0, max_tokens=2048, api_dict=api_dict)
+        mt_2_judge = chat_completion_openai(judge_model, mt_2_msg, temperature=0, max_tokens=2048, api_dict=api_dict)
+        mt_1.append(get_score_from_judgment(mt_1_judge))
+        mt_2.append(get_score_from_judgment(mt_2_judge))
+        result = {
+            "question_id": question['question_id'],
+            "mt_1_judge": mt_1_judge,
+            "mt_2_judge": mt_2_judge,
+            "mt_1_score": mt_1[-1],
+            "mt_2_score": mt_2[-1]
+        }
+        if output_file:
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            with open(output_file, "a") as fout:
+                fout.write(json.dumps(result) + "\n")
+    mt_1 = [score for score in mt_1 if score != -1]
+    mt_2 = [score for score in mt_2 if score != -1]
+    print("MT-1 Scores:", mt_1)
+    print("MT-2 Scores:", mt_2)
+    print("MT-1 Average Score:", sum(mt_1) / len(mt_1))
+    print("MT-2 Average Score:", sum(mt_2) / len(mt_2))
+    print("MT-Avg Score:", (sum(mt_1) / len(mt_1)+ sum(mt_2) / len(mt_2))/2)
+
+
+def show_results(result_file):
+    scores = []
+    with open(result_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()  # 去除换行符和空白
+            if line:  # 跳过空行
+                scores.append(json.loads(line))
+    mt_1 = [item['mt_1_score'] for item in scores]
+    mt_2 = [item['mt_2_score'] for item in scores]
+    mt_1 = [score for score in mt_1 if score != -1]
+    mt_2 = [score for score in mt_2 if score != -1]
+    mt_1_avg = sum(mt_1) / len(mt_1)
+    mt_2_avg = sum(mt_2) / len(mt_2)
+    print("MT-1 Average Score:", mt_1_avg)
+    print("MT-2 Average Score:", mt_2_avg)
+    print("MT-Avg Score:", (mt_1_avg + mt_2_avg) / 2)
